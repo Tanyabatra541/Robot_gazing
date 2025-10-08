@@ -6,11 +6,11 @@ import pyttsx3
 from draw_util import *
 import mediapipe as mp
 import string
+import numpy as np
 
 class Robot():
 
     def __init__(self):
-
         self.mp_face = mp.solutions.face_detection
         self.face_detector = self.mp_face.FaceDetection(model_selection=0, min_detection_confidence=0.5)
 
@@ -95,24 +95,34 @@ class Robot():
         self.joint_angles['tilt'] = int(delta_y * tilt_scale) 
 
     def interaction_logic_seperate_thread(self):
-
         self.enable_mutual_gaze()
         time.sleep(5)
         self.disable_mutual_gaze()
-        # self.joint_angles['pan'] = 30 # degrees
+
         self.speak("I am a robot.", blocking=True)
         self.speak("look at that picture.", blocking=True)
         print(self.objects_in_env['picture'])
         time.sleep(1)
-        self.joint_angles['pan'] = 0 # degrees
+        self.joint_angles['pan'] = 0  # reset after deictic
+
+        # === GAZE AVERSION PARAMETERS ===
+        duration = np.random.normal(3.54, 1.26)
+        start_delay = np.random.normal(-1.32, 0.47)
+
+        # Start gaze aversion thread
+        aversion_thread = threading.Thread(
+            target=self.perform_gaze_aversion,
+            args=(start_delay, duration)
+        )
+        aversion_thread.start()
+
         self.speak("I think it is very pretty.", blocking=True)
         self.speak("It reminds me of the fun times I had when I was a baby robot.", blocking=True)
 
-        # this tells the main control loop to stop
         self.completed = True
 
     def start(self):
-        cap = cv2.VideoCapture(1) # 0 for the default webcam
+        cap = cv2.VideoCapture(0)  # change to 0 if needed
         fig = plt.figure(figsize=(10, 8))
         ax = fig.add_subplot(111, projection='3d')
         fig.canvas.mpl_connect('close_event', lambda event: setattr(self, 'completed', True))
@@ -124,10 +134,8 @@ class Robot():
             success, image = cap.read()
             if not success:
                 print("Ignoring empty camera frame.")
-                # If loading a video, use 'break' instead of 'continue'.
                 continue
-            
-            # make it easier to process.
+
             image.flags.writeable = False
             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
@@ -136,21 +144,19 @@ class Robot():
                 interaction_thread.start()
                 first_loop = False
 
-            # do the mutual gaze thing later to help with code
             self.mutual_gaze_loop(image)
-            # iterate the TTS engine            
             self.engine.iterate()
 
             print(f"[Current Word]: {self.current_word}")
 
-            # DEICTIC GAZE: rotate head when saying the word "picture"
+            # DEICTIC GAZE
             if (
                 self.current_word
                 and self.current_word.lower().strip(string.punctuation) == "picture"
                 and not self.deictic_done
             ):
                 picture_pos = self.objects_in_env["picture"]
-                head_pos = (0, 0, 3)  # assume robot head is at this fixed location
+                head_pos = (0, 0, 3)  # robot's head
 
                 dx = picture_pos[0] - head_pos[0]
                 dz = picture_pos[2] - head_pos[2]
@@ -159,16 +165,56 @@ class Robot():
 
                 self.joint_angles['pan'] = int(angle_deg)
                 print(f"[Deictic Gaze] Looking at 'picture' — pan angle set to {int(angle_deg)}°")
-                self.deictic_done = True  # only trigger once
+                self.deictic_done = True
 
             self.draw(ax)
             time.sleep(0.1)
 
-        # clean up        
         if interaction_thread:
             interaction_thread.join()
         self.engine.endLoop()
         plt.close(fig)
+
+    def perform_gaze_aversion(self, start_delay, duration):
+        # Handle negative or positive start delay
+        if start_delay > 0:
+            time.sleep(start_delay)
+        else:
+            time.sleep(max(0, start_delay + np.random.normal(0, 0.05)))  # tiny jitter for realism
+
+        print(f"[Gaze Aversion] Starting: delay={start_delay:.2f}s, duration={duration:.2f}s")
+
+        # Save original joint angles
+        original_pan = self.joint_angles['pan']
+        original_tilt = self.joint_angles['tilt']
+
+        # --- Randomized deviations ---
+        # Side = ±5° (SD=1), clamped 3–7°, random direction
+        raw_side = np.random.normal(5, 1)
+        side_angle = np.clip(raw_side, 3, 7) * np.random.choice([-1, 1])
+
+        # Down = ~20° (SD=3), clamped 15–25°
+        down_angle = np.clip(np.random.normal(20, 3), 15, 25)
+
+        # --- Apply deviation (tilt positive = down in your system) ---
+        self.joint_angles['pan'] = original_pan + side_angle
+        self.joint_angles['tilt'] = original_tilt + abs(down_angle)
+
+        # Detailed debug info
+        print(
+            f"  → Diverted: pan={self.joint_angles['pan']:.2f}°, "
+            f"tilt={self.joint_angles['tilt']:.2f}° "
+            f"(down by {down_angle:.2f}°, side by {side_angle:.2f}°)"
+        )
+
+        # Hold gaze-averted posture for duration
+        time.sleep(max(0.5, duration))  # ensure it stays visible for at least half a second
+
+        # --- Return to neutral gaze ---
+        self.joint_angles['pan'] = 0
+        self.joint_angles['tilt'] = 0
+        print("[Gaze Aversion] Completed and returned to user.")
+
 
 if __name__ == "__main__":
     robot = Robot()

@@ -14,11 +14,7 @@ class Robot():
         self.mp_face = mp.solutions.face_detection
         self.face_detector = self.mp_face.FaceDetection(model_selection=0, min_detection_confidence=0.5)
 
-        self.joint_angles = {
-            'pan': 0,
-            'tilt': 0
-        }
-
+        self.joint_angles = {'pan': 0, 'tilt': 0}
         self.objects_in_env = {
             'picture': (5, -1, 1),
             'bookshelf': (-5, -1, 1),
@@ -38,18 +34,15 @@ class Robot():
 
     def _on_speech_start(self, name):
         self.is_speaking = True
-        print("Speech started")
 
     def _on_speech_end(self, name, completed):
         self.is_speaking = False
         self.current_word = None
         self.deictic_done = False
-        print("Speech ended")
-    
+
     def _on_word_start(self, name, location, length):
         if self.speaking_phrase:
             self.current_word = self.speaking_phrase[location:location+length]
-            print(f"Speaking: {self.current_word}")
 
     def wait_until_done_speaking(self):
         while self.is_speaking:
@@ -66,7 +59,7 @@ class Robot():
 
     def enable_mutual_gaze(self):
         self.mutual_gaze_flag = True
-    
+
     def disable_mutual_gaze(self):
         self.mutual_gaze_flag = False
 
@@ -83,16 +76,11 @@ class Robot():
         face_x = bbox.xmin + bbox.width / 2
         face_y = bbox.ymin + bbox.height / 2
 
-        frame_center_x = 0.5
-        frame_center_y = 0.5
-        delta_x = face_x - frame_center_x
-        delta_y = face_y - frame_center_y
+        delta_x = face_x - 0.5
+        delta_y = face_y - 0.5
 
-        pan_scale = 90   # degrees for full left/right
-        tilt_scale = 90  # degrees for full up/down
-
-        self.joint_angles['pan'] = int(-delta_x * pan_scale)
-        self.joint_angles['tilt'] = int(delta_y * tilt_scale) 
+        self.joint_angles['pan'] = int(-delta_x * 90)
+        self.joint_angles['tilt'] = int(delta_y * 90)
 
     def interaction_logic_seperate_thread(self):
         self.enable_mutual_gaze()
@@ -101,15 +89,12 @@ class Robot():
 
         self.speak("I am a robot.", blocking=True)
         self.speak("look at that picture.", blocking=True)
-        print(self.objects_in_env['picture'])
         time.sleep(1)
-        self.joint_angles['pan'] = 0  # reset after deictic
+        self.joint_angles['pan'] = 0
 
-        # === GAZE AVERSION PARAMETERS ===
         duration = np.random.normal(3.54, 1.26)
         start_delay = np.random.normal(-1.32, 0.47)
 
-        # Start gaze aversion thread
         aversion_thread = threading.Thread(
             target=self.perform_gaze_aversion,
             args=(start_delay, duration)
@@ -122,10 +107,11 @@ class Robot():
         self.completed = True
 
     def start(self):
-        cap = cv2.VideoCapture(0)  # change to 0 if needed
+        cap = cv2.VideoCapture(0)
         fig = plt.figure(figsize=(10, 8))
         ax = fig.add_subplot(111, projection='3d')
         fig.canvas.mpl_connect('close_event', lambda event: setattr(self, 'completed', True))
+
         self.engine.startLoop(False)
         first_loop = True
         interaction_thread = None
@@ -133,7 +119,6 @@ class Robot():
         while cap.isOpened() and not self.completed:
             success, image = cap.read()
             if not success:
-                print("Ignoring empty camera frame.")
                 continue
 
             image.flags.writeable = False
@@ -147,24 +132,20 @@ class Robot():
             self.mutual_gaze_loop(image)
             self.engine.iterate()
 
-            print(f"[Current Word]: {self.current_word}")
-
-            # DEICTIC GAZE
             if (
                 self.current_word
                 and self.current_word.lower().strip(string.punctuation) == "picture"
                 and not self.deictic_done
             ):
                 picture_pos = self.objects_in_env["picture"]
-                head_pos = (0, 0, 3)  # robot's head
+                head_pos = (0, 0, 3)
 
                 dx = picture_pos[0] - head_pos[0]
                 dz = picture_pos[2] - head_pos[2]
-                angle_rad = np.arctan2(dx, -dz)
-                angle_deg = np.degrees(angle_rad)
+                angle_deg = np.degrees(np.arctan2(dx, -dz))
 
                 self.joint_angles['pan'] = int(angle_deg)
-                print(f"[Deictic Gaze] Looking at 'picture' — pan angle set to {int(angle_deg)}°")
+                print(f"[Deictic Gaze] pan={int(angle_deg)}°")
                 self.deictic_done = True
 
             self.draw(ax)
@@ -176,44 +157,32 @@ class Robot():
         plt.close(fig)
 
     def perform_gaze_aversion(self, start_delay, duration):
-        # Handle negative or positive start delay
         if start_delay > 0:
             time.sleep(start_delay)
         else:
-            time.sleep(max(0, start_delay + np.random.normal(0, 0.05)))  # tiny jitter for realism
+            time.sleep(max(0, start_delay + np.random.normal(0, 0.05)))
 
-        print(f"[Gaze Aversion] Starting: delay={start_delay:.2f}s, duration={duration:.2f}s")
-
-        # Save original joint angles
         original_pan = self.joint_angles['pan']
         original_tilt = self.joint_angles['tilt']
 
-        # --- Randomized deviations ---
-        # Side = ±5° (SD=1), clamped 3–7°, random direction
         raw_side = np.random.normal(5, 1)
         side_angle = np.clip(raw_side, 3, 7) * np.random.choice([-1, 1])
-
-        # Down = ~20° (SD=3), clamped 15–25°
         down_angle = np.clip(np.random.normal(20, 3), 15, 25)
 
-        # --- Apply deviation (tilt positive = down in your system) ---
         self.joint_angles['pan'] = original_pan + side_angle
         self.joint_angles['tilt'] = original_tilt + abs(down_angle)
 
-        # Detailed debug info
         print(
-            f"  → Diverted: pan={self.joint_angles['pan']:.2f}°, "
+            f"[Gaze Aversion] → pan={self.joint_angles['pan']:.2f}°, "
             f"tilt={self.joint_angles['tilt']:.2f}° "
             f"(down by {down_angle:.2f}°, side by {side_angle:.2f}°)"
         )
 
-        # Hold gaze-averted posture for duration
-        time.sleep(max(0.5, duration))  # ensure it stays visible for at least half a second
+        time.sleep(max(0.5, duration))
 
-        # --- Return to neutral gaze ---
         self.joint_angles['pan'] = 0
         self.joint_angles['tilt'] = 0
-        print("[Gaze Aversion] Completed and returned to user.")
+        print("[Gaze Aversion] Returned to user.")
 
 
 if __name__ == "__main__":

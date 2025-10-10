@@ -1,5 +1,5 @@
 import matplotlib.pyplot as plt
-import threading 
+import threading
 import time
 import cv2
 import pyttsx3
@@ -91,15 +91,21 @@ class Robot():
         self.speak("look at that picture.", blocking=True)
         time.sleep(1)
         self.joint_angles['pan'] = 0
+        time.sleep(np.random.normal(0.3, 0.1))
 
-        duration = np.random.normal(3.54, 1.26)
-        start_delay = np.random.normal(-1.32, 0.47)
+        start_time = np.random.normal(-1.32, 0.47)
+        end_time = np.random.normal(2.23, 0.63)
+        full_duration = max(0.5, end_time - start_time)
+        duration = max(0.5, full_duration - np.random.normal(1.0, 0.2))
+        speech_delay = abs(start_time) + np.random.normal(0.3, 0.1)
 
         aversion_thread = threading.Thread(
             target=self.perform_gaze_aversion,
-            args=(start_delay, duration)
+            args=(start_time, duration)
         )
         aversion_thread.start()
+
+        time.sleep(speech_delay)
 
         self.speak("I think it is very pretty.", blocking=True)
         self.speak("It reminds me of the fun times I had when I was a baby robot.", blocking=True)
@@ -165,8 +171,7 @@ class Robot():
         original_pan = self.joint_angles['pan']
         original_tilt = self.joint_angles['tilt']
 
-        raw_side = np.random.normal(5, 1)
-        side_angle = np.clip(raw_side, 3, 7) * np.random.choice([-1, 1])
+        side_angle = np.random.choice([-1, 1]) * np.clip(np.random.normal(5, 1), 3, 7)
         down_angle = np.clip(np.random.normal(20, 3), 15, 25)
 
         self.joint_angles['pan'] = original_pan + side_angle
@@ -178,7 +183,7 @@ class Robot():
             f"(down by {down_angle:.2f}°, side by {side_angle:.2f}°)"
         )
 
-        time.sleep(max(0.5, duration))
+        time.sleep(duration)
 
         self.joint_angles['pan'] = 0
         self.joint_angles['tilt'] = 0
